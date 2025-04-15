@@ -1,11 +1,10 @@
-# sk-069167067d3e44ebb96c62013040e597
 
 import random
 from datasets import load_dataset
 from openai import OpenAI
 
 
-client = OpenAI(api_key="sk-069167067d3e44ebb96c62013040e597", base_url="https://api.deepseek.com")
+client = OpenAI(api_key="apikey", base_url="https://api.deepseek.com")# you would need to insert your secret key
 
 def rewrite_question(question, choices, answer, subject, context=""):
 
