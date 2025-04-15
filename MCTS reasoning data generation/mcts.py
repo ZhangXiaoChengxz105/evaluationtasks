@@ -3,23 +3,35 @@ import random
 from collections import defaultdict
 from typing import List, Dict
 import math
+from reasonings import qa_reasoning, meta_reasoning, pic_reasoning
 
-def qa_reasoning(example):
-    return f"[QA_REASONING] Analyzing Q: {example['question']} with choices {example['choices']}"
 
-def meta_reasoning(example):
-    return f"[META_REASONING] Hint: {example['hint']} | Lecture: {example['lecture']}"
-
-def pic_reasoning(example):
-    return f"[PIC_REASONING] Using image file: {example['image_path']} with Q: {example['question']}"
-
-def finish_and_answer(example,node): # in this part, we will go through the node and the parent nodes to get the actions taken
-    pred = random.choice(example['choices'])
-    is_correct = (example['choices'].index(pred) == example['answer'])
-    return {
-        "answer": pred,
-        "correct": is_correct,
-    }
+def finish_and_answer(example,node): 
+    # in this part, we will go through the node and the parent nodes to get the actions taken
+    # for routes that yield the correct answer sooner, we have higher reward
+    # for routes that do not yield the correct answer, we have zero as the reaward
+    trace_sequence = node.trace + ([node.action] if node.action else [])
+    reward = 0
+    tempexample = example.copy()
+    corrected = False # this is a flag to check if we have already got the correct answer
+    for i,action in enumerate(trace_sequence):
+        if action == 'qa':
+            tempexample,answer = qa_reasoning(tempexample)
+            if answer == example['answer'] and (corrected == False):
+                corrected = True    
+                reward += 2**(2-i)
+        elif action == 'meta':
+            tempexample,answer = meta_reasoning(tempexample)
+            if answer == example['answer'] and (corrected == False):
+                corrected = True
+                reward += 2**(2-i)
+        elif action == 'pic':
+            tempexample,answer = pic_reasoning(tempexample)
+            if answer == example['answer'] and (corrected == False):
+                corrected = True
+                reward += 2**(2-i)
+    
+    return reward
     
 class MCTSNode:
     def __init__(self,action, parent=None):
@@ -34,6 +46,7 @@ class MCTSNode:
             if temparent.action != None:
                 self.trace.append(temparent.action)
             temparent = temparent.parent
+        self.trace.reverse()
             
             
     def is_terminal(self): # since we are limiting the number of steps to 3, we can just check if the length of the trace is 3
@@ -88,36 +101,29 @@ def run_mcts(example:Dict, n_rollouuts:int =20):
                 node.expand()
             node = node.best_child()
         result = finish_and_answer(example, node)
-        reward = 1 if result['correct'] else 0
-        node.backpropagate(reward)
+        node.backpropagate(result)
     return root
         
 if __name__ == "__main__":
     with open("scienceqa_mcts_data.jsonl", "r", encoding="utf-8") as f:
-        data = [json.loads(line) for line in f.readlines()]
+        lines = f.readlines()
+        example = json.loads(lines[1])
 
-    subject_groups = defaultdict(list)
-    for item in data:
-        subject = item.get("subject") or item.get("metadata", {}).get("subject", "unknown")
-        subject_groups[subject].append(item)
+    print("\n==================== TREE OUTPUT ====================\n")
+    root = run_mcts(example)
+    result = finish_and_answer(example, root)
 
-    print("Loaded subjects:", list(subject_groups.keys()))
-    print("\n==================== TREE OUTPUT ====================\n") 
-    for subject, examples in subject_groups.items():
-        print(f"=== Subject: {subject} ===")
-        example = examples[0]
-        root = run_mcts(example)
-        result = finish_and_answer(example, root)
-        print("Final predicted result:")
-        print(json.dumps(result, indent=2, ensure_ascii=False))
+    print("Final predicted result:")
+    print(json.dumps(result, indent=2, ensure_ascii=False))
 
-        print("Tree stats (value/visits) per node:")
-        def print_tree(node, indent=0):
-            prefix = "  " * indent
-            print(f"{prefix}Trace={node.trace + ([node.action] if node.action else [])} | V={node.value}, N={node.visits}, A={node.action}")
-            for child in node.children:
-                print_tree(child, indent + 1)
-        print_tree(root)
-        print()               
+    print("Tree stats (value/visits) per node:")
+    def print_tree(node, indent=0):
+        prefix = "  " * indent
+        print(f"{prefix}Trace={node.trace + ([node.action] if node.action else [])} | V={node.value}, N={node.visits}, A={node.action}")
+        for child in node.children:
+            print_tree(child, indent + 1)
+    print_tree(root)              
     
+        
+
         
